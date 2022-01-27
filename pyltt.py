@@ -321,12 +321,12 @@ def status(ctx: click.core.Context) -> None:
 		if "quota" in service_status["balances"] and service_status["balances"]["quota"] and "amount" in service_status["balances"]["quota"] and service_status["balances"]["quota"]["amount"].isdigit() and "validDate" in service_status["balances"]["quota"]:
 			click.echo("")
 			click.echo(f"Current Quota: {round(int(service_status['balances']['quota']['amount']) / 1024 / 1024 / 1024, 2)} GiB")
-			click.echo(f"Qutoa Expiration Date: {service_status['balances']['quota']['validDate']}")
+			click.echo(f"Quota Expiration Date: {service_status['balances']['quota']['validDate']}")
 		
 		if "offpeak" in service_status["balances"] and service_status["balances"]["offpeak"] and "amount" in service_status["balances"]["offpeak"] and service_status["balances"]["offpeak"]["amount"].isdigit() and "validDate" in service_status["balances"]["offpeak"]:
 			click.echo("")
 			click.echo(f"Current Off-Peak Quota: {round(int(service_status['balances']['offpeak']['amount']) / 1024 / 1024 / 1024, 2)} GiB")
-			click.echo(f"Off-Peak Qutoa Expiration Date: {service_status['balances']['offpeak']['validDate']}")
+			click.echo(f"Off-Peak Quota Expiration Date: {service_status['balances']['offpeak']['validDate']}")
 
 	if "package" in service_status and service_status["package"]:
 		click.echo("\n")
