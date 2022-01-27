@@ -136,11 +136,15 @@ def sanatize_phone_num(phone_num: str) -> str:
 
 	return phone_num
 
-def sanatize_speed(speed: str) -> str:
-	return (speed + " Mb/s") if speed.isdigit() else speed
+def append_unit(text: str, unit: str) -> str:
+	return (text + f" {unit}") if text.isdigit() else text
 
-def sanatize_quota(quota: str) -> str:
-	return (quota + " GiB") if quota.isdigit() else quota
+def remove_seconds(time_str: str) -> str:
+	try:
+		time_str =  ":".join(time_str.split(":")[:2])
+	
+	finally:
+		return time_str
 
 def check_if_signed_up(credentials: dict) -> bool:
 	return ("token" in credentials)
@@ -315,7 +319,7 @@ def status(ctx: click.core.Context) -> None:
 		click.echo("")
 		if "credit" in service_status["balances"] and service_status["balances"]["credit"] and "amount" in service_status["balances"]["credit"] and service_status["balances"]["credit"]["amount"].isdigit() and "validDate" in service_status["balances"]["credit"]:
 			click.echo("")
-			click.echo(f"Current Balance: {round(int(service_status['balances']['credit']['amount']) / 1000, 2)} LYD")
+			click.echo(f"Current Balance: {append_unit(str(round(int(service_status['balances']['credit']['amount']) / 1000, 2)), 'LYD')}")
 			click.echo(f"Balance Expiration Date: {service_status['balances']['credit']['validDate']}")
 		
 		if "quota" in service_status["balances"] and service_status["balances"]["quota"] and "amount" in service_status["balances"]["quota"] and service_status["balances"]["quota"]["amount"].isdigit() and "validDate" in service_status["balances"]["quota"]:
@@ -332,13 +336,13 @@ def status(ctx: click.core.Context) -> None:
 		click.echo("\n")
 		click.echo(f"Current Package ({service_status['package']['status']}):\n")
 		click.echo(f"  Package Name: {service_status['package']['name']} ({service_status['package']['type']})")		
-		click.echo(f"  Package Max Speed: {sanatize_speed(service_status['package']['max_speed'])}")
+		click.echo(f"  Package Max Speed: {append_unit(service_status['package']['max_speed'], 'Mb/s')}")
 		
 		if "quota" in service_status["package"] and service_status['package']['quota']:
-			click.echo(f"  Package Quota: {sanatize_quota(service_status['package']['quota'])}")
+			click.echo(f"  Package Quota: {append_unit(service_status['package']['quota'], 'GiB')}")
 		
 		if "offpeak" in service_status["package"] and service_status["package"]["offpeak"] and service_status["package"]["offpeak"]["enabled"]:
-			click.echo(f"  Package Off-Peak Quota ({service_status['package']['offpeak']['start_time']} - {service_status['package']['offpeak']['end_time']}): {sanatize_quota(str(service_status['package']['offpeak']['quota_gb']))}")
+			click.echo(f"  Package Off-Peak Quota ({service_status['package']['offpeak']['start_time']} - {service_status['package']['offpeak']['end_time']}): {append_unit(str(service_status['package']['offpeak']['quota_gb']), 'GiB')}")
 
 	click.echo("\n" + footer + "\n")
 
@@ -356,8 +360,7 @@ def add(ctx: click.core.Context, service_type: tuple) -> None:
 
 	services_dict = {}
 	for service in services:
-		if "phone" not in service["name"].lower() and "hatif" not in service["name"].lower():
-			services_dict[service["name"]] = service["id"]
+		services_dict[service["name"]] = service["id"]
 
 	service_names = services_dict.keys()
 	if not service_type or service_type not in service_names:
@@ -380,7 +383,7 @@ def add(ctx: click.core.Context, service_type: tuple) -> None:
 		required_fields = json_data["result"]["required_fields"]
 		required_fields.sort(key=lambda element: element["id"])
 		for field in required_fields:
-			user_input = click.prompt(field["label"], hide_input=(field["name"] in ["password", "pin", "lte_pin"]))
+			user_input = click.prompt(field["label"])
 			if "suffix" in field and not user_input.endswith(field["suffix"]):
 				user_input += field["suffix"]
 			service_credentials[field["name"]] = user_input
@@ -475,45 +478,9 @@ def auto_recharge(ctx: click.core.Context):
 	if click.confirm(f"Do you want to turn it {'off' if status == 'ON' else 'on'}"):
 		handle_myltt_response(myltt.toggle_auto_recharge_status(service["service_id"], credentials["token"]))
 
-
 @service.command()
 @click.pass_context
-def packages(ctx: click.core.Context) -> None:
-	"""List available packages for a service"""
-
-	credentials = get_credentials_dict()
-	
-	service_name = ctx.parent.params["service_name"]
-	service = credentials["services"][service_name]
-
-	category_id = service["package_category_id"] or try_update_category_id(service_name, credentials)
-	package_groups = json.loads(handle_myltt_response(myltt.get_packages(category_id)).text)["result"]["groups"]
-
-	packages_text = ""
-	for package_group in package_groups:
-		if len(package_group["packages"]) > 0:
-			packages_text += f"{package_group['title']} ({package_group['type']}):\n"
-		
-		for package in package_group["packages"]:
-			packages_text += f"  [*] {package['title']}:\n"
-			
-			if "price" in package:
-				packages_text += f"        Price: {package['price']} LYD\n"
-			
-			if "quota" in package:				
-				packages_text += f"        Quota: {sanatize_phone_num(package['quota'])}\n"
-			
-			packages_text += f"        Max Speed: {sanatize_speed(package['speed'])}\n"
-			packages_text += f"        Package ID: {package['id']}\n"
-			packages_text += "\n"
-	
-	click.echo_via_pager(packages_text)
-
-
-@service.command()
-@click.argument('package-id', required=False)
-@click.pass_context
-def subscribe(ctx: click.core.Context, package_id) -> None:
+def subscribe(ctx: click.core.Context) -> None:
 	"""Subscribe to a package"""
 
 	credentials = get_credentials_with_updated_token(get_credentials_dict())
@@ -521,35 +488,63 @@ def subscribe(ctx: click.core.Context, package_id) -> None:
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	if not package_id:
-		category_id = service["package_category_id"] or try_update_category_id(service_name, credentials)
-		package_groups = json.loads(handle_myltt_response(myltt.get_packages(category_id)).text)["result"]["groups"]
+	category_id = service["package_category_id"] or try_update_category_id(service_name, credentials)
+	json_data = json.loads(handle_myltt_response(myltt.get_packages(category_id)).text)["result"]
+	
+	package_groups = json_data["groups"]
+	packages_type = json_data["type"]
 
-		packages = []
-		for package_group in package_groups:			
-			packages += package_group["packages"]
-		
-		packages_dict = OrderedDict()
-		for i in range(len(packages)):
-			package = packages[i]
-			if "price" in package and "quota" in package:
-				packages_title = f"{package['title']} ({sanatize_quota(package['quota'])}, {package['price']} LYD)"
-				packages_dict[packages_title] = package["id"]
-				click.echo(f"[{i + 1}]  {packages_title}")
-		
-		click.echo("")
-		
-		choice = clean_num_input(click.prompt(f"Package Number (1-{len(packages_dict)})"))
-		index = choice.isdigit() and (int(choice) - 1)
+	packages_dict = {}
+	iterations = 0
+	for package_group in package_groups:
+		group_type = package_group["type"]
 
-		if not index or index < 0 or index >= len(packages_dict):
-			raise click.ClickException("Invalid Choice")
-		
-		package_title = list(packages_dict.keys())[index]
-		package_id = packages_dict[package_title]
-		
-		if not click.confirm(f"Are you sure you want to subscribe to \"{package_title}\"", default=True):
-			raise click.Abort()
+		for package in package_group["packages"]:
+			iterations += 1
+			packages_dict[iterations] = package["id"]
+
+			click.echo(f"[{iterations}] {package['title']}")
+			
+			if packages_type == "internet":
+				click.echo(f"\tSpeed: {append_unit(package['speed'], 'Mb/s')}")
+
+				if group_type in ["monthly", "weekly"]:
+					click.echo(f"\tQuota: {append_unit(package['quota'], 'GiB')}")
+					click.echo(f"\tPrice: {append_unit(package['price'], 'LYD')}")
+	
+				elif group_type == "payg":
+					if "price_peak" in package:
+						click.echo(f"\tPrice: {append_unit(package['price_peak'], 'LYD/GiB')}")
+						if package["price_peak"] != package["price_off_peak"]:
+							click.echo(f"\tPrice Off-Peak ({remove_seconds(package['off_peak_start_time'])} - {remove_seconds(package['off_peak_end_time'])}): {append_unit(package['price_off_peak'], 'LYD/GiB')}")
+
+					else:
+						click.echo(f"\tPrice: {append_unit(package['price'], 'LYD/GiB')}")
+
+			elif packages_type == "phone":
+				if group_type in ["monthly", "weekly"]:
+					click.echo(f"\tCalls: {append_unit(package['minutes_quota'], 'Minutes')}")
+					click.echo(f"\tSMS's: {package['sms_quota']}")
+					click.echo(f"\tMMS's: {package['mms_quota']}")
+					click.echo(f"\tInternt: {append_unit(package['gprs_quota'], 'MiB')}")
+					click.echo(f"\tPrice: {append_unit(package['price'], 'LYD')}")
+	
+				elif group_type == "payg":
+					click.echo(f"\tCalls Price: {append_unit(package['calls_price'], 'LYD/MIN')}")
+					click.echo(f"\tSMS Price: {append_unit(package['sms_price'], 'LYD/MSG')}")
+					click.echo(f"\tMMS Price: {append_unit(package['sms_price'], 'LYD/MSG')}")
+			
+			click.echo("")
+	
+	
+	index = click.prompt(f"Package Number (1-{len(packages_dict)})", type=int)
+	if index not in packages_dict:
+		raise click.ClickException("Invalid Choice")
+	
+	package_id = packages_dict[index]
+	
+	if not click.confirm(f"Are you sure?", default=True):
+		raise click.Abort()
 
 	handle_myltt_response(myltt.subscribe_to_package(package_id, service["credentials"], service["service_id"], credentials["token"]))
 
@@ -558,4 +553,8 @@ def subscribe(ctx: click.core.Context, package_id) -> None:
 
 
 if __name__ == "__main__":
-	pyltt(prog_name="pyltt")
+	try:
+		pyltt(prog_name="pyltt")
+	
+	except Exception as exception:
+		click.echo(exception, err=True)
