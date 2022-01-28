@@ -14,4 +14,4 @@ This program can stop working if the MyLTT API got a major update, right now it'
 * No support for promotions
 * No support for the "extra packages"
 
-There is no technical reason for these limitaions, it's possible to add proper support for all of these, and I probably will, someday; in the meantime, feel free contribute yourself, help is always appreciated :)
+There is no technical reason for these limitaions, it's possible to add proper support for all of these, and I probably will, someday; in the meantime, feel free to contribute yourself, help is always appreciated :)
