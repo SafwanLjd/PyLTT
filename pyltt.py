@@ -448,7 +448,7 @@ def remove(ctx: click.core.Context) -> None:
 
 
 @service.command()
-@click.argument('new-service-name', required=False)
+@click.argument('service-new-name', required=False)
 @click.pass_context
 def rename(ctx: click.core.Context, service_new_name: str) -> None:
 	"""Rename a service"""
