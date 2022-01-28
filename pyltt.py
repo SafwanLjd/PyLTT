@@ -250,9 +250,9 @@ def signup() -> None:
 def delete_account() -> None:
 	"""Terminate the account that you're logged into"""
 
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
-
-	if click.confirm("Are you sure you want to terminate the account?"):
+	if click.confirm("Are you sure?"):
+		credentials = get_credentials_with_updated_token(get_credentials_dict())
+		
 		handle_myltt_response(myltt.delete_account(credentials["token"]))
 		os.remove(get_credentials_path())
 
@@ -435,16 +435,15 @@ def add(ctx: click.core.Context, service_type: tuple) -> None:
 def remove(ctx: click.core.Context) -> None:
 	"""Remove a service account from your services"""
 
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
+	if click.confirm("Are you sure?"):
+		credentials = get_credentials_with_updated_token(get_credentials_dict())
 
-	service_name = ctx.parent.params["service_name"]
-	service = credentials["services"][service_name]
+		service_name = ctx.parent.params["service_name"]
 
-	handle_myltt_response(myltt.delete_service(service["service_id"], credentials["token"]))
+		handle_myltt_response(myltt.delete_service(credentials["services"][service_name]["service_id"], credentials["token"]))
 
-	del credentials["services"][service_name]
-
-	update_credentials(credentials)
+		del credentials["services"][service_name]
+		update_credentials(credentials)
 
 
 @service.command()
