@@ -363,71 +363,77 @@ def status(ctx: click.core.Context) -> None:
 
 
 @service.command()
-@click.argument('service-type', required=False, nargs=-1)
 @click.pass_context
-def add(ctx: click.core.Context, service_type: tuple) -> None:
+def add(ctx: click.core.Context) -> None:
 	"""Add a service account"""
-
-	service_type = " ".join(service_type)
 
 	json_data = json.loads(handle_myltt_response(myltt.get_services()).text)
 	services = json_data["result"]
 
-	services_dict = {}
-	for service in services:
-		services_dict[service["name"]] = service["id"]
+	choices_dict = {}
+	for i in range(len(services)):
+		service = services[i]
 
-	service_names = services_dict.keys()
-	if not service_type or service_type not in service_names:
-		click.echo("Specify a valid service type...\n\navailable service types are:", err=True)
-		
-		for service_name in service_names:
-			click.echo("  [*] " + service_name, err=True)
+		choice_index = i + 1
+		choices_dict[choice_index] = { "name": service["name"], "id": service["id"] }
+		click.echo(f"[{choice_index}] {service['name']}")
+
+	while True:
+		index = click.prompt(f"Service Type", type=int)
+		if index in choices_dict:
+			break
+
+		else:
+			click.echo("Invalid choice", err=True)
+
+
+	service_type = choices_dict[index]["name"]
+	service_type_id = str(choices_dict[index]["id"])
+
 	
-	else:
-		credentials = update_credentials(get_credentials_dict())
-		
-		service_name = ctx.parent.params["service_name"] or click.prompt("What do you want to name this service", prompt_suffix="? ")
-		if service_name in credentials["services"].keys():
-			raise click.ClickException("You already have a service with this name")
+	package_categories = json.loads(handle_myltt_response(myltt.get_package_categories()).text)["result"]
+	category_id = ""
+	for category in package_categories:
+		if category["title"] == service_type:
+			category_id = str(category["id"])
 
-		service_type_id = str(services_dict[service_type])
-		json_data = json.loads(handle_myltt_response(myltt.get_service_info(service_type_id)).text)
-		
-		service_credentials = {}
-		required_fields = json_data["result"]["required_fields"]
-		required_fields.sort(key=lambda element: element["id"])
-		for field in required_fields:
-			user_input = click.prompt(field["label"])
-			if "suffix" in field and not user_input.endswith(field["suffix"]):
-				user_input += field["suffix"]
-			service_credentials[field["name"]] = user_input
-		
+	if not category_id:
+		raise click.ClickException("Couldn't get the service's category ID")
 
-		json_data = json.loads(handle_myltt_response(myltt.add_service(service_type_id, service_name, service_credentials, credentials["token"])).text)
-		service_id = str(json_data["result"]["service_id"])
 
-		
-		package_categories = json.loads(handle_myltt_response(myltt.get_package_categories()).text)["result"]
-		category_id = ""
-		for category in package_categories:
-			if category["title"] == service_type:
-				category_id = str(category["id"])
+	credentials = update_credentials(get_credentials_dict())
 
-		if not category_id:
-			raise click.ClickException("Couldn't get the service's category ID")
+	service_name = ctx.parent.params["service_name"] or click.prompt("What do you want to name this service", prompt_suffix="? ")
+	if service_name in credentials["services"].keys():
+		raise click.ClickException("You already have a service with this name")
+
+
+	json_data = json.loads(handle_myltt_response(myltt.get_service_info(service_type_id)).text)
+	
+	service_credentials = {}
+	required_fields = json_data["result"]["required_fields"]
+	required_fields.sort(key=lambda element: element["id"])
+	for field in required_fields:
+		user_input = click.prompt(field["label"])
+		if "suffix" in field and not user_input.endswith(field["suffix"]):
+			user_input += field["suffix"]
+		service_credentials[field["name"]] = user_input
 	
 
-		service_info = {
-			"service_type": service_type,
-			"service_id": service_id,
-			"package_category_id": category_id,
-			"credentials": service_credentials
-		}
+	json_data = json.loads(handle_myltt_response(myltt.add_service(service_type_id, service_name, service_credentials, credentials["token"])).text)
+	service_id = str(json_data["result"]["service_id"])
 
-		credentials["services"][service_name] = service_info
 
-		update_credentials(credentials)
+	service_info = {
+		"service_type": service_type,
+		"service_id": service_id,
+		"package_category_id": category_id,
+		"credentials": service_credentials
+	}
+
+	credentials["services"][service_name] = service_info
+
+	update_credentials(credentials)
 
 
 @service.command()
@@ -516,14 +522,14 @@ def subscribe(ctx: click.core.Context) -> None:
 	package_groups = json_data["groups"]
 	packages_type = json_data["type"]
 
-	packages_dict = {}
+	choices_dict = {}
 	iterations = 0
 	for package_group in package_groups:
 		group_type = package_group["type"]
 
 		for package in package_group["packages"]:
 			iterations += 1
-			packages_dict[iterations] = package["id"]
+			choices_dict[iterations] = package["id"]
 
 			click.echo(f"[{iterations}] {package['title']}")
 			
@@ -558,17 +564,18 @@ def subscribe(ctx: click.core.Context) -> None:
 			
 			click.echo("")
 	
-	
-	index = click.prompt(f"Package Number (1-{len(packages_dict)})", type=int)
-	if index not in packages_dict:
-		raise click.ClickException("Invalid Choice")
-	
-	package_id = packages_dict[index]
-	
-	if not click.confirm(f"Are you sure?", default=True):
-		raise click.Abort()
+	while True:
+		index = click.prompt(f"Package", type=int)
+		if index in choices_dict:
+			break
 
-	handle_myltt_response(myltt.subscribe_to_package(package_id, service["credentials"], service["service_id"], credentials["token"]))
+		else:
+			click.echo("Invalid choice", err=True)
+
+	package_id = choices_dict[index]
+	
+	if click.confirm(f"Are you sure?", default=True):
+		handle_myltt_response(myltt.subscribe_to_package(package_id, service["credentials"], service["service_id"], credentials["token"]))
 
 
 
