@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 
-from collections import OrderedDict
 import requests
 import pathlib
 import random
@@ -78,27 +77,6 @@ def get_credentials_with_updated_token(credentials: dict) -> dict:
 
 	return credentials
 
-def get_category_id(service_type: str) -> str:
-	package_categories = json.loads(handle_myltt_response(myltt.get_package_categories()).text)["result"]
-	category_id = ""
-	for category in package_categories:
-		if category["title"] == service_type:
-			category_id = str(category["id"])
-	
-	return category_id
-
-def try_update_category_id(service_name: str, credentials: dict) -> str:
-	service = credentials["services"][service_name]
-
-	category_id = get_category_id(service["service_type"])	
-	if category_id:
-		service["package_category_id"] = category_id
-		update_credentials(credentials)
-		return category_id
-
-	else:
-		raise click.ClickException(f"Couldn't get packages for the service type \"{service_name}\"")
-
 def check_phone_num_validity(phone_num: str) -> bool:
 	return len(phone_num) == 10 and phone_num[:3] in ALLOWED_PHONE_NUM_PREFIXES
 
@@ -136,15 +114,39 @@ def sanatize_phone_num(phone_num: str) -> str:
 
 	return phone_num
 
-def append_unit(text: str, unit: str) -> str:
-	return (text + f" {unit}") if text.isdigit() else text
+def isnumber(text: str) -> bool:
+	try:
+		float(text)
+		return True
 
-def remove_seconds(time_str: str) -> str:
+	except ValueError:
+		return False
+
+def append_unit(text: str, unit: str) -> str:
+	return (text + f" {unit}") if isnumber(text) else text
+
+def remove_seconds_from_time_str(time_str: str) -> str:
 	try:
 		time_str =  ":".join(time_str.split(":")[:2])
 	
 	finally:
 		return time_str
+
+def format_datetime(datetime: str) -> str:
+	try:
+		date, time = datetime.split(" ")
+		date = date.replace("-", "/")
+		time = remove_seconds_from_time_str(time)
+		datetime = f"{date} at {time}"
+
+	finally:
+		return datetime 
+
+def convert_cents_to_lyd_str(cents: str) -> str:
+	return append_unit(str(round(int(cents) / 1000, 2)), "LYD")
+
+def convert_bytes_to_gib(bytes_str: str) -> str:
+	return str(round(int(bytes_str) / 1024 / 1024 / 1024, 2))
 
 def check_if_signed_up(credentials: dict) -> bool:
 	return ("token" in credentials)
@@ -172,8 +174,6 @@ def handle_myltt_response(response: requests.Response) -> requests.Response:
 		response_message and click.echo(response_message)
 	
 	return response
-
-
 
 
 
@@ -305,46 +305,61 @@ def status(ctx: click.core.Context) -> None:
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	service_status = json.loads(handle_myltt_response(myltt.get_user_service_info(service["credentials"], service["service_id"], credentials["token"])).text)["result"]
+	service_info = json.loads(handle_myltt_response(myltt.get_user_service_info(service["credentials"], service["service_id"], credentials["token"])).text)["result"]
 
-	header = ("=" * 25) + "  " + service_name + "  " + ("=" * 25)
+	service_group_type = json.loads(handle_myltt_response(myltt.get_packages(service["package_category_id"])).text)["result"]["type"]
+
+	header = ("=" * 25) + f"  {service_name} ({service_info['status']})  " + ("=" * 25)
 	footer = "=" * len(header)
 
-	click.echo("\n" + header + "\n")
-	click.echo(f"Service Type: {service['service_type']} ({service_status['status']})")
-	("username" in service["credentials"]) and click.echo(f"Service Account Username: {service['credentials']['username']}")
-	("number" in service["credentials"]) and click.echo(f"Service Number: {service['credentials']['number']}")
+	click.echo(f"\n{header}\n")
+	if "package" in service_info and service_info["package"]:
+
+		click.echo(f"Package: {service_info['package']['name']} ({service_info['package']['status']})")
+
+		if service_group_type == "internet":
+			if service_info["package"]["type"] in ["monthly", "weekly", "daily"]:
+				if "quota" in  service_info["balances"]:
+					if "amount" in service_info["balances"]["quota"] and service_info['balances']['quota']['amount'].isdigit():
+						click.echo(f"\tQuota: {append_unit(convert_bytes_to_gib(service_info['balances']['quota']['amount']), 'GiB')} out of {append_unit(service_info['package']['quota'], 'GiB')}")
+					
+					if "validDate" in service_info["balances"]["quota"]:
+						click.echo(f"\tExpiration Date: {format_datetime(service_info['balances']['quota']['validDate'])}")
+
+				if "offpeak" in service_info["package"] and service_info["package"]["offpeak"]["enabled"] and "offpeak" in service_info["balances"] and service_info["balances"]["offpeak"]:
+					click.echo("")
+					click.echo(f"\tOff-Peak Quota ({remove_seconds_from_time_str(service_info['package']['offpeak']['start_time'])} - {remove_seconds_from_time_str(service_info['package']['offpeak']['end_time'])}): {append_unit(convert_bytes_to_gib(service_info['balances']['offpeak']['amount']), 'GiB')} out of {append_unit(str(service_info['package']['offpeak']['quota_gb']), 'GiB')}")
+					click.echo(f"\tOff-Peak Expiration Date: {format_datetime(service_info['balances']['offpeak']['validDate'])}")
+				
+				click.echo("")
+
+		elif service_group_type == "phone":
+			if service_info["package"]["type"] in ["monthly", "weekly", "daily"]:
 	
-	if "balances" in service_status and service_status["balances"]:
-		click.echo("")
-		if "credit" in service_status["balances"] and service_status["balances"]["credit"] and "amount" in service_status["balances"]["credit"] and service_status["balances"]["credit"]["amount"].isdigit() and "validDate" in service_status["balances"]["credit"]:
-			click.echo("")
-			click.echo(f"Current Balance: {append_unit(str(round(int(service_status['balances']['credit']['amount']) / 1000, 2)), 'LYD')}")
-			click.echo(f"Balance Expiration Date: {service_status['balances']['credit']['validDate']}")
-		
-		if "quota" in service_status["balances"] and service_status["balances"]["quota"] and "amount" in service_status["balances"]["quota"] and service_status["balances"]["quota"]["amount"].isdigit() and "validDate" in service_status["balances"]["quota"]:
-			click.echo("")
-			click.echo(f"Current Quota: {round(int(service_status['balances']['quota']['amount']) / 1024 / 1024 / 1024, 2)} GiB")
-			click.echo(f"Quota Expiration Date: {service_status['balances']['quota']['validDate']}")
-		
-		if "offpeak" in service_status["balances"] and service_status["balances"]["offpeak"] and "amount" in service_status["balances"]["offpeak"] and service_status["balances"]["offpeak"]["amount"].isdigit() and "validDate" in service_status["balances"]["offpeak"]:
-			click.echo("")
-			click.echo(f"Current Off-Peak Quota: {round(int(service_status['balances']['offpeak']['amount']) / 1024 / 1024 / 1024, 2)} GiB")
-			click.echo(f"Off-Peak Quota Expiration Date: {service_status['balances']['offpeak']['validDate']}")
+				# TODO: add support
+				
+				click.echo("\tNo package due to the lack of support for phone services")
+				
+				try:
+					file_name = "phone_details.json"
+					with open(file_name, "w", encoding="UTF-8") as file:
+						dump_content = {"package": service_info["package"], "balances": (service_info["balances"] if ("balances" in service_info) else {})}
+						file.write(json.dumps(dump_content, indent="\t"))
 
-	if "package" in service_status and service_status["package"]:
-		click.echo("\n")
-		click.echo(f"Current Package ({service_status['package']['status']}):\n")
-		click.echo(f"  Package Name: {service_status['package']['name']} ({service_status['package']['type']})")		
-		click.echo(f"  Package Max Speed: {append_unit(service_status['package']['max_speed'], 'Mb/s')}")
-		
-		if "quota" in service_status["package"] and service_status['package']['quota']:
-			click.echo(f"  Package Quota: {append_unit(service_status['package']['quota'], 'GiB')}")
-		
-		if "offpeak" in service_status["package"] and service_status["package"]["offpeak"] and service_status["package"]["offpeak"]["enabled"]:
-			click.echo(f"  Package Off-Peak Quota ({service_status['package']['offpeak']['start_time']} - {service_status['package']['offpeak']['end_time']}): {append_unit(str(service_status['package']['offpeak']['quota_gb']), 'GiB')}")
+					click.echo(f"\tJSON data was dumped to \"{file_name}\" instead")
+					click.echo("\tif you want to help improve phone services support")
+					click.echo("\tyou can upload the file in a GitHub issue on SafwanLjd/PyLTT")
+				
+				except Exception:
+					click.echo(f"\ttried to dump JSON data instead, but couldn't access \"{file_name}\"")
+				
+				click.echo("")
+	
+	if "balances" in service_info and "credit" in service_info["balances"] and "amount" in service_info["balances"]["credit"] and service_info['balances']['credit']['amount']:
+		click.echo(f"Balance: {convert_cents_to_lyd_str(service_info['balances']['credit']['amount'])}")
+		click.echo(f"\tExpiration Date: {format_datetime(service_info['balances']['credit']['validDate'])}")
 
-	click.echo("\n" + footer + "\n")
+	click.echo(f"\n{footer}\n")
 
 
 @service.command()
@@ -392,7 +407,15 @@ def add(ctx: click.core.Context, service_type: tuple) -> None:
 		json_data = json.loads(handle_myltt_response(myltt.add_service(service_type_id, service_name, service_credentials, credentials["token"])).text)
 		service_id = str(json_data["result"]["service_id"])
 
-		category_id = get_category_id(service_type)
+		
+		package_categories = json.loads(handle_myltt_response(myltt.get_package_categories()).text)["result"]
+		category_id = ""
+		for category in package_categories:
+			if category["title"] == service_type:
+				category_id = str(category["id"])
+
+		if not category_id:
+			raise click.ClickException("Couldn't get the service's category ID")
 	
 
 		service_info = {
@@ -488,7 +511,7 @@ def subscribe(ctx: click.core.Context) -> None:
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	category_id = service["package_category_id"] or try_update_category_id(service_name, credentials)
+	category_id = service["package_category_id"]
 	json_data = json.loads(handle_myltt_response(myltt.get_packages(category_id)).text)["result"]
 	
 	package_groups = json_data["groups"]
@@ -508,7 +531,7 @@ def subscribe(ctx: click.core.Context) -> None:
 			if packages_type == "internet":
 				click.echo(f"\tSpeed: {append_unit(package['speed'], 'Mb/s')}")
 
-				if group_type in ["monthly", "weekly"]:
+				if group_type in ["monthly", "weekly", "daily"]:
 					click.echo(f"\tQuota: {append_unit(package['quota'], 'GiB')}")
 					click.echo(f"\tPrice: {append_unit(package['price'], 'LYD')}")
 	
@@ -516,13 +539,13 @@ def subscribe(ctx: click.core.Context) -> None:
 					if "price_peak" in package:
 						click.echo(f"\tPrice: {append_unit(package['price_peak'], 'LYD/GiB')}")
 						if package["price_peak"] != package["price_off_peak"]:
-							click.echo(f"\tPrice Off-Peak ({remove_seconds(package['off_peak_start_time'])} - {remove_seconds(package['off_peak_end_time'])}): {append_unit(package['price_off_peak'], 'LYD/GiB')}")
+							click.echo(f"\tPrice Off-Peak ({remove_seconds_from_time_str(package['off_peak_start_time'])} - {remove_seconds_from_time_str(package['off_peak_end_time'])}): {append_unit(package['price_off_peak'], 'LYD/GiB')}")
 
 					else:
 						click.echo(f"\tPrice: {append_unit(package['price'], 'LYD/GiB')}")
 
 			elif packages_type == "phone":
-				if group_type in ["monthly", "weekly"]:
+				if group_type in ["monthly", "weekly", "daily"]:
 					click.echo(f"\tCalls: {append_unit(package['minutes_quota'], 'Minutes')}")
 					click.echo(f"\tSMS's: {package['sms_quota']}")
 					click.echo(f"\tMMS's: {package['mms_quota']}")
@@ -553,8 +576,4 @@ def subscribe(ctx: click.core.Context) -> None:
 
 
 if __name__ == "__main__":
-	try:
-		pyltt(prog_name="pyltt")
-	
-	except Exception as exception:
-		click.echo(exception, err=True)
+	pyltt(prog_name="pyltt")
