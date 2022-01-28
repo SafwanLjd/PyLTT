@@ -220,7 +220,7 @@ def signup() -> None:
 
 	handle_myltt_response(myltt.get_verification_code(phone_num, device_id))
 
-	otp = clean_num_input(click.prompt("Verification code"))
+	otp = str(click.prompt("Verification code", type=int))
  
 	handle_myltt_response(myltt.verify_phone_num(otp, phone_num, device_id))
 
@@ -480,7 +480,7 @@ def top_up(ctx: click.core.Context, voucher: str) -> None:
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	voucher = voucher or clean_num_input(click.prompt("Voucher number"))
+	voucher = voucher or str(click.prompt("Voucher number", type=int))
 
 	handle_myltt_response(myltt.recharge_voucher(voucher, service["credentials"], service["service_id"], credentials["token"]))
 
