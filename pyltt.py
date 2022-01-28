@@ -492,7 +492,7 @@ def top_up(ctx: click.core.Context, voucher: str) -> None:
 
 @service.command()
 @click.pass_context
-def auto_recharge(ctx: click.core.Context):
+def auto_recharge(ctx: click.core.Context) -> None:
 	"""auto package re-subsribtion"""
 
 	credentials = get_credentials_with_updated_token(get_credentials_dict())
