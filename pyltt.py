@@ -322,14 +322,17 @@ def status(ctx: click.core.Context) -> None:
 				if "quota" in  service_info["balances"]:
 					if "amount" in service_info["balances"]["quota"] and service_info['balances']['quota']['amount'].isdigit():
 						click.echo(f"\tQuota: {append_unit(convert_bytes_to_gib(service_info['balances']['quota']['amount']), 'GiB')} out of {append_unit(service_info['package']['quota'], 'GiB')}")
-					
+
 					if "validDate" in service_info["balances"]["quota"]:
 						click.echo(f"\tExpiration Date: {format_datetime(service_info['balances']['quota']['validDate'])}")
 
 				if "offpeak" in service_info["package"] and service_info["package"]["offpeak"]["enabled"] and "offpeak" in service_info["balances"] and service_info["balances"]["offpeak"]:
 					click.echo("")
-					click.echo(f"\tOff-Peak Quota ({remove_seconds_from_time_str(service_info['package']['offpeak']['start_time'])} - {remove_seconds_from_time_str(service_info['package']['offpeak']['end_time'])}): {append_unit(convert_bytes_to_gib(service_info['balances']['offpeak']['amount']), 'GiB')} out of {append_unit(str(service_info['package']['offpeak']['quota_gb']), 'GiB')}")
-					click.echo(f"\tOff-Peak Expiration Date: {format_datetime(service_info['balances']['offpeak']['validDate'])}")
+					click.echo(f"\tOff-Peak Quota: {append_unit(convert_bytes_to_gib(service_info['balances']['offpeak']['amount']), 'GiB')} out of {append_unit(str(service_info['package']['offpeak']['quota_gb']), 'GiB')}")
+					click.echo(f"\tOff-Peak Time: from {remove_seconds_from_time_str(service_info['package']['offpeak']['start_time'])} to {remove_seconds_from_time_str(service_info['package']['offpeak']['end_time'])}")
+
+					if "validDate" in service_info["balances"]["offpeak"] and ("quota" not in service_info["balances"] or "validDate" not in service_info["balances"]["quota"] or service_info["balances"]["quota"]["validDate"] != service_info["balances"]["offpeak"]["validDate"]):
+						click.echo(f"\tExpiration Date: {format_datetime(service_info['balances']['offpeak']['validDate'])}")
 				
 				click.echo("")
 
