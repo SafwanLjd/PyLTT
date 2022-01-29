@@ -496,17 +496,17 @@ def top_up(ctx: click.core.Context, voucher: str) -> None:
 @service.command()
 @click.pass_context
 def auto_recharge(ctx: click.core.Context) -> None:
-	"""auto package re-subsribtion"""
+	"""Auto package re-subscribtion"""
 
 	credentials = get_credentials_with_updated_token(get_credentials_dict())
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	status = "ON" if bool(json.loads(handle_myltt_response(myltt.get_auto_recharge_status(service["service_id"], credentials["token"])).text)["result"]["auto_recharge_status"]) else "OFF"
+	status = "on" if bool(json.loads(handle_myltt_response(myltt.get_auto_recharge_status(service["service_id"], credentials["token"])).text)["result"]["auto_recharge_status"]) else "off"
 	click.echo(f"Auto-Recharge: {status}")
 
-	if click.confirm(f"Do you want to turn it {'off' if status == 'ON' else 'on'}"):
+	if click.confirm(f"Do you want to turn it {'off' if status == 'on' else 'on'}"):
 		handle_myltt_response(myltt.toggle_auto_recharge_status(service["service_id"], credentials["token"]))
 
 @service.command()
