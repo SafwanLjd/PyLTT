@@ -16,30 +16,35 @@ ALLOWED_PHONE_NUM_PREFIXES = ["091", "092", "094", "095", "097"]
 
 
 
-def get_credentials_path() -> str:
+def get_data_dir_path() -> str:
 	home = str(pathlib.Path.home())
 
 	if sys.platform == "win32":
-		data_dir = f"{home}/AppData/Roaming"
+		os_specific_path = "AppData/Roaming"
 	
 	elif sys.platform == "darwin":
-		data_dir = f"{home}/Library/Application Support"
+		os_specific_path = "Library/Application Support"
 	
 	else:
-		data_dir = f"{home}/.local/share"
+		os_specific_path = ".local/share"
 	
-	credentials_path = f"{data_dir}/pyltt/credentials.json"
-	os.makedirs(os.path.dirname(credentials_path), exist_ok=True)
+	data_dir_path = f"{home}/{os_specific_path}/pyltt"
+	os.makedirs(data_dir_path, exist_ok=True)
 	
-	return credentials_path
+	return data_dir_path
 
-def get_credentials_dict() -> dict:
+def get_credentials_path() -> str:
+	return f"{get_data_dir_path()}/credentials.json"
+
+def get_credentials() -> dict:
 	try:
-		with open(get_credentials_path(), "r", encoding="UTF-8") as file:
-			return json.loads(file.read())
+		credentials = json.loads(open(get_credentials_path(), "r", encoding="UTF-8").read())
 
-	except Exception:
-		return {}
+	except FileNotFoundError:
+		credentials = {}
+	
+	finally:
+		return credentials
 
 def update_credentials(credentials: dict) -> dict:
 	try:
@@ -125,9 +130,9 @@ def isnumber(text: str) -> bool:
 def append_unit(text: str, unit: str) -> str:
 	return (text + f" {unit}") if isnumber(text) else text
 
-def remove_seconds_from_time_str(time_str: str) -> str:
+def remove_seconds_from_time(time_str: str) -> str:
 	try:
-		time_str =  ":".join(time_str.split(":")[:2])
+		time_str = ":".join(time_str.split(":")[:2])
 	
 	finally:
 		return time_str
@@ -136,13 +141,13 @@ def format_datetime(datetime: str) -> str:
 	try:
 		date, time = datetime.split(" ")
 		date = date.replace("-", "/")
-		time = remove_seconds_from_time_str(time)
+		time = remove_seconds_from_time(time)
 		datetime = f"{date} at {time}"
 
 	finally:
 		return datetime 
 
-def convert_cents_to_lyd_str(cents: str) -> str:
+def convert_cents_to_lyd(cents: str) -> str:
 	return append_unit(str(round(int(cents) / 1000, 2)), "LYD")
 
 def convert_bytes_to_gib(bytes_str: str) -> str:
@@ -191,7 +196,7 @@ class Group(click.Group):
 def pyltt(ctx: click.core.Context) -> None:
 	"""A FOSS CLI Alternative to The Official MyLTT App"""
 	
-	is_logged_in = check_if_signed_up(get_credentials_dict())
+	is_logged_in = check_if_signed_up(get_credentials())
 	if not ctx.invoked_subcommand:
 		if is_logged_in:
 			ctx.invoke(service)
@@ -251,7 +256,7 @@ def delete_account() -> None:
 	"""Terminate the account that you're logged into"""
 
 	if click.confirm("Are you sure?"):
-		credentials = get_credentials_with_updated_token(get_credentials_dict())
+		credentials = get_credentials_with_updated_token(get_credentials())
 		
 		handle_myltt_response(myltt.delete_account(credentials["token"]))
 		os.remove(get_credentials_path())
@@ -264,35 +269,35 @@ def delete_account() -> None:
 def service(ctx: click.core.Context, service_name: str) -> None:
 	"""Add, remove, modify, view, and control your services"""
 
-	credentials = get_credentials_dict()
+	credentials = get_credentials()
 	
 	if service_name:
-		if ctx.invoked_subcommand not in ["add", "list-services"] and service_name not in credentials["services"].keys():
+		if ctx.invoked_subcommand not in ["add", "list-all"] and service_name not in credentials["services"].keys():
 			raise click.ClickException(f"You don't have a service with the name \"{service_name}\"")
 	
 		elif not ctx.invoked_subcommand:
 			ctx.invoke(status)
 
 	else:
-		if ctx.invoked_subcommand not in [None, "add", "list-services"]:
+		if ctx.invoked_subcommand not in [None, "add", "list-all"]:
 			raise click.ClickException("You must specify a service")
 	
 		elif not ctx.invoked_subcommand:
-			ctx.invoke(list_services)
+			ctx.invoke(list_all)
 
 
 @service.command()
-def list_services() -> None:
+def list_all() -> None:
 	"""Get a list of your services"""
 
-	credentials = get_credentials_dict()
+	credentials = get_credentials()
 
 	if not credentials["services"]:
 		raise click.ClickException("You don't have any services yet, try to add some")
 
 	click.echo("Services list:")
 	for key, value in credentials["services"].items():
-		click.echo(f"  [*] {key} ({value['service_type']})")
+		click.echo(f"\t[*] {key} ({value['service_type']})")
 
 
 @service.command()
@@ -300,7 +305,7 @@ def list_services() -> None:
 def status(ctx: click.core.Context) -> None:
 	"""Get information about a service"""
 
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
+	credentials = get_credentials_with_updated_token(get_credentials())
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -319,7 +324,7 @@ def status(ctx: click.core.Context) -> None:
 
 		if service_group_type == "internet":
 			if service_info["package"]["type"] in ["monthly", "weekly", "daily"]:
-				if "quota" in  service_info["balances"]:
+				if "quota" in service_info["balances"]:
 					if "amount" in service_info["balances"]["quota"] and service_info['balances']['quota']['amount'].isdigit():
 						click.echo(f"\tQuota: {append_unit(convert_bytes_to_gib(service_info['balances']['quota']['amount']), 'GiB')} out of {append_unit(service_info['package']['quota'], 'GiB')}")
 
@@ -329,7 +334,7 @@ def status(ctx: click.core.Context) -> None:
 				if "offpeak" in service_info["package"] and service_info["package"]["offpeak"]["enabled"] and "offpeak" in service_info["balances"] and service_info["balances"]["offpeak"]:
 					click.echo("")
 					click.echo(f"\tOff-Peak Quota: {append_unit(convert_bytes_to_gib(service_info['balances']['offpeak']['amount']), 'GiB')} out of {append_unit(str(service_info['package']['offpeak']['quota_gb']), 'GiB')}")
-					click.echo(f"\tOff-Peak Time: from {remove_seconds_from_time_str(service_info['package']['offpeak']['start_time'])} to {remove_seconds_from_time_str(service_info['package']['offpeak']['end_time'])}")
+					click.echo(f"\tOff-Peak Time: from {remove_seconds_from_time(service_info['package']['offpeak']['start_time'])} to {remove_seconds_from_time(service_info['package']['offpeak']['end_time'])}")
 
 					if "validDate" in service_info["balances"]["offpeak"] and ("quota" not in service_info["balances"] or "validDate" not in service_info["balances"]["quota"] or service_info["balances"]["quota"]["validDate"] != service_info["balances"]["offpeak"]["validDate"]):
 						click.echo(f"\tExpiration Date: {format_datetime(service_info['balances']['offpeak']['validDate'])}")
@@ -359,7 +364,7 @@ def status(ctx: click.core.Context) -> None:
 				click.echo("")
 	
 	if "balances" in service_info and "credit" in service_info["balances"] and "amount" in service_info["balances"]["credit"] and service_info['balances']['credit']['amount']:
-		click.echo(f"Balance: {convert_cents_to_lyd_str(service_info['balances']['credit']['amount'])}")
+		click.echo(f"Balance: {convert_cents_to_lyd(service_info['balances']['credit']['amount'])}")
 		click.echo(f"\tExpiration Date: {format_datetime(service_info['balances']['credit']['validDate'])}")
 
 	click.echo(f"\n{footer}\n")
@@ -404,7 +409,7 @@ def add(ctx: click.core.Context) -> None:
 		raise click.ClickException("Couldn't get the service's category ID")
 
 
-	credentials = update_credentials(get_credentials_dict())
+	credentials = update_credentials(get_credentials())
 
 	service_name = ctx.parent.params["service_name"] or click.prompt("What do you want to name this service", prompt_suffix="? ")
 	if service_name in credentials["services"].keys():
@@ -445,7 +450,7 @@ def remove(ctx: click.core.Context) -> None:
 	"""Remove a service account from your services"""
 
 	if click.confirm("Are you sure?"):
-		credentials = get_credentials_with_updated_token(get_credentials_dict())
+		credentials = get_credentials_with_updated_token(get_credentials())
 
 		service_name = ctx.parent.params["service_name"]
 
@@ -461,7 +466,7 @@ def remove(ctx: click.core.Context) -> None:
 def rename(ctx: click.core.Context, service_new_name: str) -> None:
 	"""Rename a service"""
 	
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
+	credentials = get_credentials_with_updated_token(get_credentials())
 	
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -483,7 +488,7 @@ def rename(ctx: click.core.Context, service_new_name: str) -> None:
 def top_up(ctx: click.core.Context, voucher: str) -> None:
 	"""Recharge your balance with a voucher card number"""
 
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
+	credentials = get_credentials_with_updated_token(get_credentials())
 	
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -498,7 +503,7 @@ def top_up(ctx: click.core.Context, voucher: str) -> None:
 def auto_recharge(ctx: click.core.Context) -> None:
 	"""Auto package re-subscribtion"""
 
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
+	credentials = get_credentials_with_updated_token(get_credentials())
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -514,7 +519,7 @@ def auto_recharge(ctx: click.core.Context) -> None:
 def subscribe(ctx: click.core.Context) -> None:
 	"""Subscribe to a package"""
 
-	credentials = get_credentials_with_updated_token(get_credentials_dict())
+	credentials = get_credentials_with_updated_token(get_credentials())
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -547,7 +552,7 @@ def subscribe(ctx: click.core.Context) -> None:
 					if "price_peak" in package:
 						click.echo(f"\tPrice: {append_unit(package['price_peak'], 'LYD/GiB')}")
 						if package["price_peak"] != package["price_off_peak"]:
-							click.echo(f"\tPrice Off-Peak ({remove_seconds_from_time_str(package['off_peak_start_time'])} - {remove_seconds_from_time_str(package['off_peak_end_time'])}): {append_unit(package['price_off_peak'], 'LYD/GiB')}")
+							click.echo(f"\tPrice Off-Peak ({remove_seconds_from_time(package['off_peak_start_time'])} - {remove_seconds_from_time(package['off_peak_end_time'])}): {append_unit(package['price_off_peak'], 'LYD/GiB')}")
 
 					else:
 						click.echo(f"\tPrice: {append_unit(package['price'], 'LYD/GiB')}")
