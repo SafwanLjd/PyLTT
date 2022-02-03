@@ -40,22 +40,21 @@ def get_credentials() -> dict:
 	try:
 		credentials = json.loads(open(get_credentials_path(), "r", encoding="UTF-8").read())
 
-	except FileNotFoundError:
+	except (FileNotFoundError, PermissionError):
 		credentials = {}
 	
 	finally:
 		return credentials
 
 def update_credentials(credentials: dict) -> dict:
+	file_path = get_credentials_path()
 	try:
-		file_path = get_credentials_path()
-		with open(file_path, "w", encoding="UTF-8") as file:
-			file.write(json.dumps(credentials, indent="\t"))
-		
-		return credentials
+		open(file_path, "w", encoding="UTF-8").write(json.dumps(credentials, indent="\t"))
 
-	except Exception:
-		raise click.FileError(file_path)
+	except (FileNotFoundError, PermissionError):
+		raise click.ClickException(f"Couldn't access the credentials file at {file_path}")
+
+	return credentials
 
 def check_token_validity(token: str) -> bool:
 	response = myltt.validate_token(token)
@@ -119,16 +118,20 @@ def sanatize_phone_num(phone_num: str) -> str:
 
 	return phone_num
 
-def isnumber(text: str) -> bool:
+def is_number(text: str) -> bool:
+	value = True
+
 	try:
 		float(text)
-		return True
 
 	except ValueError:
-		return False
+		value = False
+	
+	finally:
+		return value
 
 def append_unit(text: str, unit: str) -> str:
-	return (text + f" {unit}") if isnumber(text) else text
+	return (text + f" {unit}") if is_number(text) else text
 
 def remove_seconds_from_time(time_str: str) -> str:
 	try:
@@ -358,7 +361,7 @@ def status(ctx: click.core.Context) -> None:
 					click.echo("\tif you want to help improve phone services support")
 					click.echo("\tyou can upload the file in a GitHub issue on SafwanLjd/PyLTT")
 				
-				except Exception:
+				except (FileNotFoundError, PermissionError):
 					click.echo(f"\ttried to dump JSON data instead, but couldn't access \"{file_name}\"")
 				
 				click.echo("")
