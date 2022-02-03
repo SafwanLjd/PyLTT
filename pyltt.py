@@ -95,7 +95,7 @@ def clean_num_input(input_num: str) -> str:
 		"٦": "6",
 		"٧": "7",
 		"٨": "8",
-		"٩": "9",
+		"٩": "9"
 	}
 
 	for key, value in east_nums_dict.items():
@@ -247,7 +247,7 @@ def signup() -> None:
 		"client_secret": client_secret,
 		"token": token,
 		"refresh_token": refresh_token,
-		"services": {},
+		"services": {}
 	}
 
 	update_credentials(credentials)
@@ -354,7 +354,11 @@ def status(ctx: click.core.Context) -> None:
 				try:
 					file_name = "phone_details.json"
 					with open(file_name, "w", encoding="UTF-8") as file:
-						dump_content = {"package": service_info["package"], "balances": (service_info["balances"] if ("balances" in service_info) else {})}
+						dump_content = {
+							"package": service_info["package"],
+							"balances": service_info["balances"] if ("balances" in service_info) else {}
+						}
+						
 						file.write(json.dumps(dump_content, indent="\t"))
 
 					click.echo(f"\tJSON data was dumped to \"{file_name}\" instead")
