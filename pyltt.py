@@ -162,6 +162,17 @@ def check_if_signed_up(credentials: dict) -> bool:
 def generate_device_id() -> str:
 	return hex(random.randint(2 ** 32, 2 ** 64)).replace("0x", "")
 
+def choice_prompt(text: str, min_index: int, max_index: int) -> int:
+	while True:
+		index = click.prompt(text, type=int)
+		if index >= min_index and index <= max_index:
+			break
+
+		else:
+			click.echo("Invalid choice, try again", err=True)
+
+	return index
+
 def handle_myltt_response(response: requests.Response) -> requests.Response:
 	json_data = json.loads(response.text)
 	
@@ -385,25 +396,14 @@ def add(ctx: click.core.Context) -> None:
 	json_data = json.loads(handle_myltt_response(myltt.get_services()).text)
 	services = json_data["result"]
 
-	choices_dict = {}
-	for i in range(len(services)):
-		service = services[i]
+	choices = []
+	for service in services:
+		choices.append({ "name": service["name"], "id": service["id"] })
+		click.echo(f"[{len(choices)}] {service['name']}")
 
-		choice_index = i + 1
-		choices_dict[choice_index] = { "name": service["name"], "id": service["id"] }
-		click.echo(f"[{choice_index}] {service['name']}")
-
-	while True:
-		index = click.prompt(f"Service Type", type=int)
-		if index in choices_dict:
-			break
-
-		else:
-			click.echo("Invalid choice", err=True)
-
-
-	service_type = choices_dict[index]["name"]
-	service_type_id = str(choices_dict[index]["id"])
+	index = choice_prompt("Service Type", 1, len(choices)) - 1
+	service_type = choices[index]["name"]
+	service_type_id = str(choices[index]["id"])
 
 	
 	package_categories = json.loads(handle_myltt_response(myltt.get_package_categories()).text)["result"]
@@ -521,6 +521,7 @@ def auto_recharge(ctx: click.core.Context) -> None:
 	if click.confirm(f"Do you want to turn it {'off' if status == 'on' else 'on'}"):
 		handle_myltt_response(myltt.toggle_auto_recharge_status(service["service_id"], credentials["token"]))
 
+
 @service.command()
 @click.pass_context
 def subscribe(ctx: click.core.Context) -> None:
@@ -537,16 +538,16 @@ def subscribe(ctx: click.core.Context) -> None:
 	package_groups = json_data["groups"]
 	packages_type = json_data["type"]
 
-	choices_dict = {}
-	iterations = 0
+	choices = []
 	for package_group in package_groups:
 		group_type = package_group["type"]
 
 		for package in package_group["packages"]:
-			iterations += 1
-			choices_dict[iterations] = package["id"]
 
-			click.echo(f"[{iterations}] {package['title']}")
+			choices.append(str(package["id"]))
+			click.echo(f"[{len(choices)}] {package['title']}")
+			
+
 			
 			if packages_type == "internet":
 				click.echo(f"\tSpeed: {append_unit(package['speed'], 'Mb/s')}")
@@ -579,17 +580,11 @@ def subscribe(ctx: click.core.Context) -> None:
 			
 			click.echo("")
 	
-	while True:
-		index = click.prompt(f"Package", type=int)
-		if index in choices_dict:
-			break
-
-		else:
-			click.echo("Invalid choice", err=True)
-
-	package_id = choices_dict[index]
 	
-	if click.confirm(f"Are you sure?", default=True):
+	index = choice_prompt("Package", 1, len(choices)) - 1
+	package_id = choices[index]
+	
+	if click.confirm("Are you sure?", default=True):
 		handle_myltt_response(myltt.subscribe_to_package(package_id, service["credentials"], service["service_id"], credentials["token"]))
 
 
