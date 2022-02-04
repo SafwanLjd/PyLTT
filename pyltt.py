@@ -12,10 +12,6 @@ import os
 
 
 
-ALLOWED_PHONE_NUM_PREFIXES = ["091", "092", "094", "095", "097"]
-
-
-
 def get_data_dir_path() -> str:
 	home = str(pathlib.Path.home())
 
@@ -58,31 +54,27 @@ def update_credentials(credentials: dict) -> dict:
 
 def check_token_validity(token: str) -> bool:
 	response = myltt.validate_token(token)
-	valid = response.status_code == 200
-	try:
-		valid or click.echo(json.loads(response.text)["message"])
-	
-	finally:
-		return valid
+	return response.status_code == 200
 
 def update_token(credentials: dict) -> dict:
 	click.echo("Updating token...")
 	
-	json_data = json.loads(handle_myltt_response(myltt.refresh_old_token(credentials["refresh_token"], credentials["client_id"], credentials["client_secret"])).text)
+	json_data = handle_myltt_response(myltt.refresh_old_token(credentials["refresh_token"], credentials["client_id"], credentials["client_secret"]))
 
 	credentials["token"] = json_data["access_token"]
 	credentials["refresh_token"] = json_data["refresh_token"]
 
 	return update_credentials(credentials)
 
-def get_credentials_with_updated_token(credentials: dict) -> dict:
+def get_credentials_with_updated_token() -> dict:
+	credentials = get_credentials()
 	if not check_token_validity(credentials["token"]):
 		credentials = update_token(credentials)
 
 	return credentials
 
 def check_phone_num_validity(phone_num: str) -> bool:
-	return len(phone_num) == 10 and phone_num[:3] in ALLOWED_PHONE_NUM_PREFIXES
+	return len(phone_num) == 10 and phone_num[:2] == "09"
 
 def clean_num_input(input_num: str) -> str:
 	east_nums_dict = {
@@ -103,10 +95,10 @@ def clean_num_input(input_num: str) -> str:
 
 	return re.sub("[^0-9]", "", input_num)
 
-def sanatize_phone_num(phone_num: str) -> str:
+def format_phone_num(phone_num: str) -> str:
 	phone_num = clean_num_input(phone_num)
  
-	if len(phone_num) >= 9 and len(phone_num) <= 14:
+	if len(phone_num) >= 9:
 		if phone_num[:3] == "218":
 			phone_num = phone_num.replace("218", "0", 1)
 		
@@ -173,7 +165,7 @@ def choice_prompt(text: str, min_index: int, max_index: int) -> int:
 
 	return index
 
-def handle_myltt_response(response: requests.Response) -> requests.Response:
+def handle_myltt_response(response: requests.Response) -> dict:
 	json_data = json.loads(response.text)
 	
 	if "message" in json_data:
@@ -192,7 +184,7 @@ def handle_myltt_response(response: requests.Response) -> requests.Response:
 	else:
 		response_message and click.echo(response_message)
 	
-	return response
+	return json_data
 
 
 
@@ -232,7 +224,7 @@ def signup() -> None:
 	"""Create a MyLTT account with a mobile number"""
 
 	device_id = generate_device_id()
-	phone_num = sanatize_phone_num(click.prompt("Mobile number"))
+	phone_num = format_phone_num(click.prompt("Mobile number"))
 
 	if not check_phone_num_validity(phone_num):
 		raise click.ClickException("This is not a valid Libyan mobile number")
@@ -243,11 +235,11 @@ def signup() -> None:
  
 	handle_myltt_response(myltt.verify_phone_num(otp, phone_num, device_id))
 
-	json_data = json.loads(handle_myltt_response(myltt.signup(phone_num, device_id)).text)
+	json_data = handle_myltt_response(myltt.signup(phone_num, device_id))
 	client_id = str(json_data["result"]["client_id"])
 	client_secret = json_data["result"]["client_secret"]
 
-	json_data = json.loads(handle_myltt_response(myltt.get_token(client_id, client_secret, phone_num, device_id)).text)
+	json_data = handle_myltt_response(myltt.get_token(client_id, client_secret, phone_num, device_id))
 	token = json_data["access_token"]
 	refresh_token = json_data["refresh_token"]
 
@@ -270,7 +262,7 @@ def delete_account() -> None:
 	"""Terminate the account that you're logged into"""
 
 	if click.confirm("Are you sure?"):
-		credentials = get_credentials_with_updated_token(get_credentials())
+		credentials = get_credentials_with_updated_token()
 		
 		handle_myltt_response(myltt.delete_account(credentials["token"]))
 		os.remove(get_credentials_path())
@@ -319,14 +311,14 @@ def list_all() -> None:
 def status(ctx: click.core.Context) -> None:
 	"""Get information about a service"""
 
-	credentials = get_credentials_with_updated_token(get_credentials())
+	credentials = get_credentials_with_updated_token()
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	service_info = json.loads(handle_myltt_response(myltt.get_user_service_info(service["credentials"], service["service_id"], credentials["token"])).text)["result"]
+	service_info = handle_myltt_response(myltt.get_user_service_info(service["credentials"], service["service_id"], credentials["token"]))["result"]
 
-	service_group_type = json.loads(handle_myltt_response(myltt.get_packages(service["package_category_id"])).text)["result"]["type"]
+	service_group_type = handle_myltt_response(myltt.get_packages(service["package_category_id"]))["result"]["type"]
 
 	header = ("=" * 25) + f"  {service_name} ({service_info['status']})  " + ("=" * 25)
 	footer = "=" * len(header)
@@ -393,7 +385,7 @@ def status(ctx: click.core.Context) -> None:
 def add(ctx: click.core.Context) -> None:
 	"""Add a service account"""
 
-	json_data = json.loads(handle_myltt_response(myltt.get_services()).text)
+	json_data = handle_myltt_response(myltt.get_services())
 	services = json_data["result"]
 
 	choices = []
@@ -406,7 +398,7 @@ def add(ctx: click.core.Context) -> None:
 	service_type_id = str(choices[index]["id"])
 
 	
-	package_categories = json.loads(handle_myltt_response(myltt.get_package_categories()).text)["result"]
+	package_categories = handle_myltt_response(myltt.get_package_categories())["result"]
 	category_id = ""
 	for category in package_categories:
 		if category["title"] == service_type:
@@ -423,7 +415,7 @@ def add(ctx: click.core.Context) -> None:
 		raise click.ClickException("You already have a service with this name")
 
 
-	json_data = json.loads(handle_myltt_response(myltt.get_service_info(service_type_id)).text)
+	json_data = handle_myltt_response(myltt.get_service_info(service_type_id))
 	
 	service_credentials = {}
 	required_fields = json_data["result"]["required_fields"]
@@ -435,7 +427,7 @@ def add(ctx: click.core.Context) -> None:
 		service_credentials[field["name"]] = user_input
 	
 
-	json_data = json.loads(handle_myltt_response(myltt.add_service(service_type_id, service_name, service_credentials, credentials["token"])).text)
+	json_data = handle_myltt_response(myltt.add_service(service_type_id, service_name, service_credentials, credentials["token"]))
 	service_id = str(json_data["result"]["service_id"])
 
 
@@ -457,7 +449,7 @@ def remove(ctx: click.core.Context) -> None:
 	"""Remove a service account from your services"""
 
 	if click.confirm("Are you sure?"):
-		credentials = get_credentials_with_updated_token(get_credentials())
+		credentials = get_credentials_with_updated_token()
 
 		service_name = ctx.parent.params["service_name"]
 
@@ -473,7 +465,7 @@ def remove(ctx: click.core.Context) -> None:
 def rename(ctx: click.core.Context, service_new_name: str) -> None:
 	"""Rename a service"""
 	
-	credentials = get_credentials_with_updated_token(get_credentials())
+	credentials = get_credentials_with_updated_token()
 	
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -495,7 +487,7 @@ def rename(ctx: click.core.Context, service_new_name: str) -> None:
 def top_up(ctx: click.core.Context, voucher: str) -> None:
 	"""Recharge your balance with a voucher card number"""
 
-	credentials = get_credentials_with_updated_token(get_credentials())
+	credentials = get_credentials_with_updated_token()
 	
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
@@ -510,12 +502,12 @@ def top_up(ctx: click.core.Context, voucher: str) -> None:
 def auto_recharge(ctx: click.core.Context) -> None:
 	"""Auto package re-subscribtion"""
 
-	credentials = get_credentials_with_updated_token(get_credentials())
+	credentials = get_credentials_with_updated_token()
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
-	status = "on" if bool(json.loads(handle_myltt_response(myltt.get_auto_recharge_status(service["service_id"], credentials["token"])).text)["result"]["auto_recharge_status"]) else "off"
+	status = "on" if bool(handle_myltt_response(myltt.get_auto_recharge_status(service["service_id"], credentials["token"]))["result"]["auto_recharge_status"]) else "off"
 	click.echo(f"Auto-Recharge: {status}")
 
 	if click.confirm(f"Do you want to turn it {'off' if status == 'on' else 'on'}"):
@@ -527,13 +519,13 @@ def auto_recharge(ctx: click.core.Context) -> None:
 def subscribe(ctx: click.core.Context) -> None:
 	"""Subscribe to a package"""
 
-	credentials = get_credentials_with_updated_token(get_credentials())
+	credentials = get_credentials_with_updated_token()
 
 	service_name = ctx.parent.params["service_name"]
 	service = credentials["services"][service_name]
 
 	category_id = service["package_category_id"]
-	json_data = json.loads(handle_myltt_response(myltt.get_packages(category_id)).text)["result"]
+	json_data = handle_myltt_response(myltt.get_packages(category_id))["result"]
 	
 	package_groups = json_data["groups"]
 	packages_type = json_data["type"]
