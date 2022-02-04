@@ -40,7 +40,7 @@ def get_credentials() -> dict:
 	try:
 		credentials = json.loads(open(get_credentials_path(), "r", encoding="UTF-8").read())
 
-	except (FileNotFoundError, PermissionError):
+	except IOError:
 		credentials = {}
 	
 	finally:
@@ -51,7 +51,7 @@ def update_credentials(credentials: dict) -> dict:
 	try:
 		open(file_path, "w", encoding="UTF-8").write(json.dumps(credentials, indent="\t"))
 
-	except (FileNotFoundError, PermissionError):
+	except IOError:
 		raise click.ClickException(f"Couldn't access the credentials file at {file_path}")
 
 	return credentials
@@ -376,7 +376,7 @@ def status(ctx: click.core.Context) -> None:
 					click.echo("\tif you want to help improve phone services support")
 					click.echo("\tyou can upload the file in a GitHub issue on SafwanLjd/PyLTT")
 				
-				except (FileNotFoundError, PermissionError):
+				except IOError:
 					click.echo(f"\ttried to dump JSON data instead, but couldn't access \"{file_name}\"")
 				
 				click.echo("")
